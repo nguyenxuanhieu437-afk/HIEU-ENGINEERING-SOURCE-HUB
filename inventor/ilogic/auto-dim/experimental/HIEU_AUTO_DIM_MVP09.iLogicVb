@@ -1,0 +1,242 @@
+' HIEU AUTO DIM PRO MVP09 - SAFE 2D ONLY / Inventor Drawing 2025-2027
+' DOES NOT dimension isometric/3D views. Avoids arc spam and duplicate hole diameters.
+' Run on a COPY of a CLEAN drawing sheet. Existing dimensions are never erased.
+Sub Main()
+ If ThisApplication.ActiveDocument.DocumentType <> DocumentTypeEnum.kDrawingDocumentObject Then
+  MessageBox.Show("Open a 2D Drawing (*.idw / *.dwg).", "HIEU AUTO DIM") : Return
+ End If
+ Dim doc As DrawingDocument = CType(ThisApplication.ActiveDocument, DrawingDocument)
+ Dim sh As Sheet = doc.ActiveSheet
+ Dim dims As GeneralDimensions = sh.DrawingDimensions.GeneralDimensions
+ If dims.Count > 0 Then
+  MessageBox.Show("SAFE MODE: this sheet already contains " & dims.Count & " general dimensions." & vbCrLf & _
+   "To prevent overlaps/duplicates, MVP08 will not add anything." & vbCrLf & _
+   "Use a CLEAN COPY of the drawing or clear only the incorrect dimensions first.", "HIEU AUTO DIM")
+  Return
+ End If
+ Dim tg As TransientGeometry = ThisApplication.TransientGeometry
+ Dim transaction As Transaction = ThisApplication.TransactionManager.StartTransaction(doc, "HIEU AUTO DIM - safe 2D")
+ Dim n As Integer = 0, skipped As Integer = 0, errors As Integer = 0, foundCircles As Integer = 0, foundLines As Integer = 0
+ Dim diagnostics As New System.Text.StringBuilder()
+ Try
+  For Each view As DrawingView In sh.DrawingViews
+   ' Inventor may report kArbitrary for genuine 2D base/projected views.
+   ' Use camera optical axis instead of relying on its orientation enum name.
+   Dim ori As String = "unknown"
+   Dim axisScore As Double = 0
+   Dim isOrtho As Boolean = False
+   Try
+    Dim cam As Inventor.Camera = view.Camera
+    ori = cam.ViewOrientationType.ToString()
+    Dim eye As Inventor.Point = cam.Eye
+    Dim target As Inventor.Point = cam.Target
+    Dim dx As Double = eye.X - target.X
+    Dim dy As Double = eye.Y - target.Y
+    Dim dz As Double = eye.Z - target.Z
+    Dim norm As Double = Math.Sqrt(dx*dx + dy*dy + dz*dz)
+    If norm > 0.0000001 Then
+     axisScore = Math.Max(Math.Abs(dx), Math.Max(Math.Abs(dy),Math.Abs(dz))) / norm
+     isOrtho = (axisScore >= 0.995)
+    End If
+    If ori.ToLowerInvariant().Contains("iso") Then isOrtho = False
+    If cam.Perspective Then isOrtho = False
+   Catch ex As Exception
+    diagnostics.AppendLine(view.Name & ": camera error " & ex.Message)
+   End Try
+   diagnostics.AppendLine(view.Name & " | " & ori & " | axis=" & Math.Round(axisScore,4) & " | 2D=" & isOrtho)
+   If Not isOrtho Then
+    skipped += 1 : Continue For
+   End If
+   Dim cs As New System.Collections.Generic.List(Of DrawingCurve)()
+   Dim arcCandidates As New System.Collections.Generic.List(Of DrawingCurve)()
+   Dim ellipseCandidates As New System.Collections.Generic.List(Of DrawingCurve)()
+   Dim typeCounts As New System.Collections.Generic.Dictionary(Of String,Integer)()
+   Dim modelTypes As New System.Collections.Generic.Dictionary(Of String,Integer)()
+   Dim splineUnderlyingCircles As Integer = 0
+   Dim segments As New System.Collections.Generic.List(Of DrawingCurve)()
+   For Each c As DrawingCurve In view.DrawingCurves
+    Try
+     Dim tk As String = c.ProjectedCurveType.ToString()
+     Dim mt As String = c.CurveType.ToString()
+     Dim mk As String = mt & " -> " & tk
+     If Not modelTypes.ContainsKey(mk) Then modelTypes(mk) = 0
+     modelTypes(mk) += 1
+     If c.ProjectedCurveType = Curve2dTypeEnum.kBSplineCurve2d AndAlso _
+        (mt.Contains("Circle") OrElse mt.Contains("CircularArc")) Then
+      splineUnderlyingCircles += 1
+     End If
+     If Not typeCounts.ContainsKey(tk) Then typeCounts(tk) = 0
+     typeCounts(tk) += 1
+     If c.ProjectedCurveType = Curve2dTypeEnum.kCircleCurve2d Then
+      If c.CenterPoint IsNot Nothing Then cs.Add(c) : foundCircles += 1
+     ElseIf c.ProjectedCurveType = Curve2dTypeEnum.kCircularArcCurve2d Then
+      If c.CenterPoint IsNot Nothing Then arcCandidates.Add(c)
+     ElseIf c.ProjectedCurveType = Curve2dTypeEnum.kEllipseFullCurve2d Then
+      ellipseCandidates.Add(c)
+     ElseIf c.ProjectedCurveType = Curve2dTypeEnum.kLineSegmentCurve2d Then
+      If c.StartPoint IsNot Nothing AndAlso c.EndPoint IsNot Nothing Then segments.Add(c) : foundLines += 1
+     End If
+    Catch
+    End Try
+   Next
+   For Each entry As System.Collections.Generic.KeyValuePair(Of String,Integer) In typeCounts
+    diagnostics.AppendLine("  projected " & entry.Key & "=" & entry.Value)
+   Next
+   diagnostics.AppendLine("  projected-spline/model-circle candidates=" & splineUnderlyingCircles)
+   For Each entry As System.Collections.Generic.KeyValuePair(Of String,Integer) In modelTypes
+    diagnostics.AppendLine("  model->sheet " & entry.Key & "=" & entry.Value)
+   Next
+   ' Read view bounding box; place dimensions OUTSIDE view with fixed lanes.
+   Dim left As Double = view.Center.X - view.Width/2
+   Dim bottom As Double = view.Center.Y - view.Height/2
+   Dim right As Double = view.Center.X + view.Width/2
+   Dim top As Double = view.Center.Y + view.Height/2
+   Dim gap As Double = Math.Max(1.0, Math.Min(2.0, view.Width*0.13)) ' sheet units: cm
+   ' Overall X/Y from drawing line endpoint extrema only. No arc/radius spray.
+   Dim minx As Double = Double.MaxValue, maxx As Double = Double.MinValue
+   Dim miny As Double = Double.MaxValue, maxy As Double = Double.MinValue
+   Dim ixmin As GeometryIntent = Nothing, ixmax As GeometryIntent = Nothing
+   Dim iymin As GeometryIntent = Nothing, iymax As GeometryIntent = Nothing
+   For Each c As DrawingCurve In segments
+    For k As Integer = 0 To 1
+     Dim p As Point2d = If(k=0, c.StartPoint, c.EndPoint)
+     Dim intent As GeometryIntent = sh.CreateGeometryIntent(c, If(k=0, PointIntentEnum.kStartPointIntent, PointIntentEnum.kEndPointIntent))
+     If p.X < minx Then minx=p.X : ixmin=intent
+     If p.X > maxx Then maxx=p.X : ixmax=intent
+     If p.Y < miny Then miny=p.Y : iymin=intent
+     If p.Y > maxy Then maxy=p.Y : iymax=intent
+    Next
+   Next
+   If ixmin IsNot Nothing AndAlso ixmax IsNot Nothing AndAlso maxx-minx>0.01 Then
+    Try
+     dims.AddLinear(tg.CreatePoint2d((minx+maxx)/2, bottom-gap), ixmin, ixmax, DimensionTypeEnum.kHorizontalDimensionType)
+     n += 1
+    Catch
+     errors += 1
+    End Try
+   End If
+   If iymin IsNot Nothing AndAlso iymax IsNot Nothing AndAlso maxy-miny>0.01 Then
+    Try
+     dims.AddLinear(tg.CreatePoint2d(left-gap, (miny+maxy)/2), iymin, iymax, DimensionTypeEnum.kVerticalDimensionType)
+     n += 1
+    Catch
+     errors += 1
+    End Try
+   End If
+   ' Deduplicate physical circle projections by position AND radius; a countersink
+   ' or stepped coaxial hole can have different diameters at the same center.
+   ' Segment.Geometry is late-bound here to avoid a fragile Circle2d cast.
+   ' Keep one true projected circle per (center, radius), not all arc fillets.
+   Dim holes As New System.Collections.Generic.List(Of DrawingCurve)()
+   Dim holeSizes As New System.Collections.Generic.List(Of Double)()
+   Dim keys As New System.Collections.Generic.HashSet(Of String)(System.StringComparer.Ordinal)
+   For Each c As DrawingCurve In cs
+    Try
+     If c.Segments.Count = 0 Then Continue For
+     ' Evaluator2D.RangeBox is stable for complete circles and avoids COM late-binding .Radius failures.
+     Dim box2 As Box2d = c.Evaluator2D.RangeBox
+     Dim radius As Double = ((box2.MaxPoint.X-box2.MinPoint.X) + (box2.MaxPoint.Y-box2.MinPoint.Y)) / 4.0
+     If radius < 0.005 Then Continue For
+     Dim cp As Point2d = c.CenterPoint
+     Dim key As String = Math.Round(cp.X,3).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) & ":" & _
+      Math.Round(cp.Y,3).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) & ":" & _
+      Math.Round(radius,3).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+     If keys.Add(key) Then
+      holes.Add(c) : holeSizes.Add(radius)
+     End If
+    Catch ex As Exception
+     diagnostics.AppendLine(view.Name & " circle-read: " & ex.Message)
+    End Try
+   Next
+   diagnostics.AppendLine(view.Name & " circles=" & cs.Count & ", unique=" & holes.Count & ", arcs=" & arcCandidates.Count & ", ellipses=" & ellipseCandidates.Count & ", lines=" & segments.Count)
+   ' Full circles can be projected as split arcs in some drawing styles.
+   ' Identify candidate circles by repeated center/radius and angular coverage; do not
+   ' automatically dimension ordinary corner fillets as hole diameters.
+   Dim arcGroups As New System.Collections.Generic.Dictionary(Of String, System.Collections.Generic.List(Of DrawingCurve))(System.StringComparer.Ordinal)
+   For Each a As DrawingCurve In arcCandidates
+    Try
+     Dim ab As Box2d = a.Evaluator2D.RangeBox
+     Dim ac As Point2d = a.CenterPoint
+     Dim rr As Double = Math.Max(Math.Abs(ab.MaxPoint.X-ac.X), Math.Abs(ab.MinPoint.X-ac.X))
+     rr = Math.Max(rr, Math.Max(Math.Abs(ab.MaxPoint.Y-ac.Y),Math.Abs(ab.MinPoint.Y-ac.Y)))
+     If rr < 0.005 Then Continue For
+     Dim ak As String = Math.Round(ac.X,2).ToString("F2", System.Globalization.CultureInfo.InvariantCulture) & ":" & _
+      Math.Round(ac.Y,2).ToString("F2", System.Globalization.CultureInfo.InvariantCulture) & ":" & _
+      Math.Round(rr,2).ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
+     If Not arcGroups.ContainsKey(ak) Then arcGroups.Add(ak, New System.Collections.Generic.List(Of DrawingCurve)())
+     arcGroups(ak).Add(a)
+    Catch ex As Exception
+     diagnostics.AppendLine(view.Name & " arc-read: " & ex.Message)
+    End Try
+   Next
+   diagnostics.AppendLine(view.Name & " arc-center groups=" & arcGroups.Count & "; NOTE: arcs are diagnostics only until full-profile validation.")
+   ' The reference front view has exactly TWO complete circular curves; the central opening
+   ' is not reported as kCircleCurve2d. Do not require three circles to recognize hole row.
+   Dim candidate As Boolean = (holes.Count >= 2 AndAlso view.Width > view.Height * 1.3)
+   If candidate Then
+    Dim placed As New System.Collections.Generic.HashSet(Of String)(System.StringComparer.Ordinal)
+    Dim diameterLane As Integer = 0
+    ' Every DISTINCT projected hole diameter gets a callout, not every identical ring.
+    For k As Integer = 0 To holes.Count - 1
+     Dim rk As String = Math.Round(holeSizes(k),3).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+     If Not placed.Add(rk) Then Continue For
+     Try
+      Dim circle As DrawingCurve = holes(k)
+      Dim it As GeometryIntent = sh.CreateGeometryIntent(circle)
+      Dim px As Double = circle.CenterPoint.X + gap * 0.65
+      Dim py As Double = top + gap + 0.7 + diameterLane * 1.0
+      dims.AddDiameter(tg.CreatePoint2d(px,py), it, False)
+      n += 1 : diameterLane += 1
+     Catch ex As Exception
+      errors += 1 : diagnostics.AppendLine(view.Name & " diameter failed: " & ex.Message)
+     End Try
+    Next
+    ' Horizontal pitch between outermost circle centers. No guess based on edges.
+    Dim first As DrawingCurve = Nothing, last As DrawingCurve = Nothing
+    For Each c As DrawingCurve In holes
+     If first Is Nothing OrElse c.CenterPoint.X < first.CenterPoint.X Then first = c
+     If last Is Nothing OrElse c.CenterPoint.X > last.CenterPoint.X Then last = c
+    Next
+    If first IsNot Nothing AndAlso last IsNot Nothing AndAlso _
+       last.CenterPoint.X - first.CenterPoint.X > 0.1 AndAlso _
+       Math.Abs(last.CenterPoint.Y-first.CenterPoint.Y) < 0.05 Then
+     Try
+      dims.AddLinear(tg.CreatePoint2d((first.CenterPoint.X+last.CenterPoint.X)/2,bottom-gap-1.1), _
+       sh.CreateGeometryIntent(first,PointIntentEnum.kCenterPointIntent), _
+       sh.CreateGeometryIntent(last,PointIntentEnum.kCenterPointIntent),DimensionTypeEnum.kHorizontalDimensionType)
+      n += 1
+     Catch ex As Exception
+      errors += 1 : diagnostics.AppendLine(view.Name & " center-pitch failed: " & ex.Message)
+     End Try
+    End If
+    ' Center locating Y: create only if there is a genuine vertical offset.
+    ' If every circle lies on same centerline, no fictitious 0 mm Y dimension.
+    Dim upper As DrawingCurve = Nothing, lower As DrawingCurve = Nothing
+    For Each c As DrawingCurve In holes
+     If upper Is Nothing OrElse c.CenterPoint.Y > upper.CenterPoint.Y Then upper = c
+     If lower Is Nothing OrElse c.CenterPoint.Y < lower.CenterPoint.Y Then lower = c
+    Next
+    If upper IsNot Nothing AndAlso lower IsNot Nothing AndAlso upper.CenterPoint.Y-lower.CenterPoint.Y > 0.05 Then
+     Try
+      dims.AddLinear(tg.CreatePoint2d(left-gap-1.0,(upper.CenterPoint.Y+lower.CenterPoint.Y)/2), _
+       sh.CreateGeometryIntent(upper,PointIntentEnum.kCenterPointIntent), _
+       sh.CreateGeometryIntent(lower,PointIntentEnum.kCenterPointIntent),DimensionTypeEnum.kVerticalDimensionType)
+      n += 1
+     Catch ex As Exception
+      errors += 1 : diagnostics.AppendLine(view.Name & " center-Y failed: " & ex.Message)
+     End Try
+    End If
+    If holes.Count = 2 Then diagnostics.AppendLine(view.Name & " WARNING: two complete circle curves only. Central bore requires additional geometry analysis; not inferred from screenshot.")
+   Else
+    diagnostics.AppendLine(view.Name & " NOT a hole-rich face view (no circle callouts).")
+   End If
+
+  Next
+  transaction.End()
+  MessageBox.Show("2D dimensions created: " & n & vbCrLf & "Non-orthographic views skipped: " & skipped & vbCrLf & _
+   "Failed placements: " & errors & vbCrLf & "Circle curves found: " & foundCircles & " | Straight lines: " & foundLines & vbCrLf & vbCrLf & diagnostics.ToString() & vbCrLf & "MVP09: 2D-only; compares original and projected curve types. No guessed bore diameter.","HIEU AUTO DIM")
+ Catch ex As Exception
+  transaction.Abort()
+  MessageBox.Show("All new dimensions rolled back: " & ex.Message, "HIEU AUTO DIM")
+ End Try
+End Sub
