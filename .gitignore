@@ -1,0 +1,22 @@
+# Generated build output
+bin/
+obj/
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.cache
+__pycache__/
+node_modules/
+dist/
+build/
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.pem
+*.key
+*credentials*
+*secrets*
