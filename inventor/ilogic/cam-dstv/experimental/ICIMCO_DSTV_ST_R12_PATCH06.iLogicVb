@@ -1,0 +1,635 @@
+' ICIMCO DSTV V09 ST PFC CORRECTED R12 / Autodesk Inventor iLogic VB.NET
+' Units in DSTV: mm. Units Inventor API geometry: cm.
+' Supported import: U / PFC prismatic section, circular BO holes on v/o/u.
+' Rounded contours and arbitrary E/B planes are DETECTED, NOT silently approximated.
+' IK straight-sided contours are now cut from the correct datum face.
+' Export: reversible source of imported part ONLY IF Inventor feature count is unchanged.
+' This is a PROTOTYPE, NOT a certified manufacturing NC post-processor.
+
+AddReference "System.Windows.Forms"
+Imports System
+Imports System.IO
+Imports System.Text
+Imports System.Text.RegularExpressions
+Imports System.Globalization
+Imports System.Collections.Generic
+Imports System.Windows.Forms
+Imports Inventor
+
+Sub Main()
+    Try
+        Dim opt As String = InputBox("1 = Nhập DSTV NC/NC1 và dựng 3D" & vbCrLf & _
+                                     "2 = Xuất lại DSTV từ Part đã nhập (chưa chỉnh sửa)" & vbCrLf & _
+                                     "3 = CHỈ DỰNG ST (đo R12 không chạy BO/AK)" & vbCrLf & _
+                                     "0 = Thoát", "ICIMCO ST R12 - PATCH05", "3")
+        Select Case opt.Trim()
+            Case "1" : ImportNc(False)
+            Case "3" : ImportNc(True)
+            Case "2" : ExportNc()
+            Case Else : Return
+        End Select
+    Catch ex As Exception
+        MessageBox.Show(ex.ToString(), "ICIMCO DSTV - ERROR")
+    End Try
+End Sub
+
+Private Sub AttachEndpoint(ByVal sketch As PlanarSketch, ByVal endA As SketchPoint, ByVal startB As SketchPoint)
+    ' Spatial coincidence is insufficient for a reliably joined Inventor profile.
+    ' Explicitly connect the real topology of the line endpoint and arc startpoint.
+    Try
+        sketch.GeometricConstraints.AddCoincident(endA, startB)
+    Catch ex As Exception
+        Dim dx As Double = endA.Geometry.X - startB.Geometry.X
+        Dim dy As Double = endA.Geometry.Y - startB.Geometry.Y
+        If Math.Sqrt(dx * dx + dy * dy) > 0.000001 Then
+            Throw New Exception("ST line-arc join failed: " & ex.Message)
+        End If
+        ' Already joined or auto-constrained by Inventor.
+    End Try
+End Sub
+
+Private Function Num(ByVal s As String) As Double
+    Return Double.Parse(s, CultureInfo.InvariantCulture)
+End Function
+
+Private Function Tokens(ByVal line As String) As String()
+    Return Regex.Split(line.Trim(), "\s+")
+End Function
+
+Private Function IsNumericToken(ByVal s As String) As Boolean
+    Return Regex.IsMatch(s, "^[+-]?\d+(?:\.\d+)?[uUvV]?$", RegexOptions.CultureInvariant)
+End Function
+
+Private Function ValToken(ByVal s As String) As Double
+    Return Num(Regex.Replace(s, "[uUvV]$", ""))
+End Function
+
+Private Function SafeName(ByVal s As String) As String
+    Return Regex.Replace(s, "[^A-Za-z0-9_\-]", "_")
+End Function
+
+Private Sub ImportNc(Optional ByVal stockOnly As Boolean = False)
+    Dim sourcePath As String = ""
+    Using dlg As New OpenFileDialog()
+        dlg.Filter = "DSTV NC (*.nc;*.nc1)|*.nc;*.nc1|All files (*.*)|*.*"
+        dlg.Title = "Chọn DSTV NC/NC1"
+        If dlg.ShowDialog() <> DialogResult.OK Then Return
+        sourcePath = dlg.FileName
+    End Using
+
+    Dim content As String = System.IO.File.ReadAllText(sourcePath)
+    Dim lines As String() = Regex.Split(content, "\r\n|\n|\r")
+    Dim blockName As String = ""
+    Dim header As New List(Of String)()
+    Dim holeData As New List(Of String)()
+    Dim unhandled As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Dim contourCount As Integer = 0
+    Dim contourData As New List(Of List(Of String))()
+    Dim contourSides As New List(Of String)()
+    Dim activeContour As List(Of String) = Nothing
+    Dim siData As New List(Of String)()
+    Dim planeData As New Dictionary(Of String, List(Of String))(StringComparer.OrdinalIgnoreCase)
+    Dim sawEnd As Boolean = False
+
+    For Each raw As String In lines
+        Dim ln As String = raw.Trim()
+        If ln.Length = 0 OrElse ln.StartsWith("**") Then Continue For
+        Select Case ln.ToUpperInvariant()
+            Case "ST", "BO", "AK", "IK", "SI", "PU", "KO", "EN", "SC"
+                blockName = ln.ToUpperInvariant()
+                If blockName = "AK" OrElse blockName = "IK" Then
+                    contourCount += 1
+                    activeContour = New List(Of String)()
+                    contourData.Add(activeContour)
+                    contourSides.Add(blockName)
+                End If
+                If blockName = "EN" Then sawEnd = True
+                Continue For
+        End Select
+        If Regex.IsMatch(ln, "^[EB]\d+$", RegexOptions.IgnoreCase) Then
+            blockName = ln.ToUpperInvariant()
+            unhandled.Add(blockName)
+            planeData(blockName) = New List(Of String)()
+            Continue For
+        End If
+        If blockName = "ST" Then
+            header.Add(ln)
+        ElseIf blockName = "BO" Then
+            holeData.Add(ln)
+        ElseIf blockName = "AK" OrElse blockName = "IK" Then
+            activeContour.Add(ln)
+        ElseIf blockName = "SI" Then
+            siData.Add(ln)
+        ElseIf planeData.ContainsKey(blockName) Then
+            planeData(blockName).Add(ln)
+        ElseIf blockName <> "EN" Then
+            unhandled.Add(blockName)
+        End If
+    Next
+
+    If Not sawEnd Then Throw New Exception("Thiếu EN: không đủ điều kiện đọc file.")
+    If header.Count < 15 Then Throw New Exception("Header ST không đủ trường. Không dựng để tránh sai kích thước.")
+
+    ' DSTV ST normal header indices (0 based): order, drawing, phase, piece, grade,
+    ' qty, profile, section type, length, height, width, radius, web, flange, weight.
+    Dim partMark As String = header(3)
+    Dim grade As String = header(4)
+    Dim section As String = header(7).ToUpperInvariant()
+    If section <> "U" Then Throw New Exception("MVP01 chỉ dựng tiết diện U/PFC. File này có loại: " & section)
+    Dim lengthMm As Double = Num(header(8))
+    Dim heightMm As Double = Num(header(9))
+    Dim widthMm As Double = Num(header(10))
+    Dim flangeMm As Double = Num(header(11))
+    Dim webMm As Double = Num(header(12))
+    Dim radiusMm As Double = Num(header(13))
+    If lengthMm <= 0 OrElse heightMm <= 0 OrElse widthMm <= 0 OrElse webMm <= 0 OrElse flangeMm <= 0 Then
+        Throw New Exception("Kích thước phôi không hợp lệ.")
+    End If
+    If webMm >= widthMm OrElse (2 * flangeMm) >= heightMm OrElse radiusMm < 0 OrElse webMm + radiusMm >= widthMm OrElse 2.0 * (flangeMm + radiusMm) >= heightMm Then
+        Throw New Exception("Thông số tiết diện U không hợp lệ.")
+    End If
+
+    Dim pd As PartDocument = CType(ThisApplication.Documents.Add(DocumentTypeEnum.kPartDocumentObject, _
+                                     ThisApplication.FileManager.GetTemplateFile(DocumentTypeEnum.kPartDocumentObject), True), PartDocument)
+    Dim cd As PartComponentDefinition = pd.ComponentDefinition
+    Dim tg As TransientGeometry = ThisApplication.TransientGeometry
+    Dim sk As PlanarSketch = cd.Sketches.Add(cd.WorkPlanes.Item(3)) ' XY
+
+    ' U section sketch in XY. Outer web lies at X=0, opening points +X.
+    ' XY sketch space is centimetres (1 cm = 10 mm).
+    ' PFC ST field order: L, H, B, flange thickness, web thickness, ROOT radius.
+    ' Real quarter-circle root fillets are part of the base section (not later AK cuts).
+    ' Coordinate convention: web at X=0; lower flange Y=0; profile opens to +X.
+    ' TRUE PFC R12: both corners are 90-degree arcs, not diagonals.
+    ' AddByThreePoints forces the MINOR arc and attaches it to preceding SketchPoint.
+    ' ST PATCH06: Build ONE continuous 10-entity closed perimeter.
+    ' Line end SketchPoint is passed directly to arc start; arc end SketchPoint
+    ' is passed directly to next line. No AddCoincident solver side effects.
+    Dim point2 As Func(Of Double, Double, Inventor.Point2d) = _
+        Function(xx As Double, yy As Double) tg.CreatePoint2d(xx / 10.0, yy / 10.0)
+    Dim firstLine As SketchLine = sk.SketchLines.AddByTwoPoints(point2(0, 0), point2(widthMm, 0))
+    Dim segment As SketchLine = sk.SketchLines.AddByTwoPoints(firstLine.EndSketchPoint, point2(widthMm, flangeMm))
+    segment = sk.SketchLines.AddByTwoPoints(segment.EndSketchPoint, point2(webMm + radiusMm, flangeMm))
+    If radiusMm > 0.000001 Then
+        Dim q As Double = radiusMm / Math.Sqrt(2.0)
+        Dim lowerArc As SketchArc = sk.SketchArcs.AddByThreePoints( _
+            segment.EndSketchPoint, _
+            point2(webMm + radiusMm - q, flangeMm + radiusMm - q), _
+            point2(webMm, flangeMm + radiusMm))
+        segment = sk.SketchLines.AddByTwoPoints(lowerArc.EndSketchPoint, point2(webMm, heightMm - flangeMm - radiusMm))
+        Dim upperArc As SketchArc = sk.SketchArcs.AddByThreePoints( _
+            segment.EndSketchPoint, _
+            point2(webMm + radiusMm - q, heightMm - flangeMm - radiusMm + q), _
+            point2(webMm + radiusMm, heightMm - flangeMm))
+        segment = sk.SketchLines.AddByTwoPoints(upperArc.EndSketchPoint, point2(widthMm, heightMm - flangeMm))
+    Else
+        segment = sk.SketchLines.AddByTwoPoints(segment.EndSketchPoint, point2(webMm, flangeMm))
+        segment = sk.SketchLines.AddByTwoPoints(segment.EndSketchPoint, point2(webMm, heightMm - flangeMm))
+        segment = sk.SketchLines.AddByTwoPoints(segment.EndSketchPoint, point2(widthMm, heightMm - flangeMm))
+    End If
+    segment = sk.SketchLines.AddByTwoPoints(segment.EndSketchPoint, point2(widthMm, heightMm))
+    segment = sk.SketchLines.AddByTwoPoints(segment.EndSketchPoint, point2(0, heightMm))
+    segment = sk.SketchLines.AddByTwoPoints(segment.EndSketchPoint, firstLine.StartSketchPoint)
+    ' For rounded PFC there must be 8 straight lines + 2 true quarter-circle arcs.
+    If radiusMm > 0.000001 Then
+        If sk.SketchLines.Count <> 8 OrElse sk.SketchArcs.Count <> 2 Then _
+            Throw New Exception("ST topology invalid: expected 8 lines and 2 arcs, got " & _
+                sk.SketchLines.Count.ToString() & " lines, " & sk.SketchArcs.Count.ToString() & " arcs")
+    End If
+    ' Measure every generated endpoint against expected section bounding box.
+    For Each ln As SketchLine In sk.SketchLines
+        For Each sp As SketchPoint In New SketchPoint() {ln.StartSketchPoint, ln.EndSketchPoint}
+            If sp.Geometry.X < -0.0001 OrElse sp.Geometry.X > widthMm / 10.0 + 0.0001 OrElse _
+               sp.Geometry.Y < -0.0001 OrElse sp.Geometry.Y > heightMm / 10.0 + 0.0001 Then
+                Throw New Exception("ST endpoint moved outside expected 90 x 250 mm section")
+            End If
+        Next
+    Next
+    Dim nominalAreaMm2 As Double = 2.0 * widthMm * flangeMm + webMm * (heightMm - 2.0 * flangeMm) + _
+        2.0 * radiusMm * radiusMm * (1.0 - Math.PI / 4.0)
+    ' Geometric area of cross-section: two flanges + web + two root fillet additions.
+    Dim pro As Profile = sk.Profiles.AddForSolid()
+    Dim extr As ExtrudeDefinition = cd.Features.ExtrudeFeatures.CreateExtrudeDefinition(pro, PartFeatureOperationEnum.kJoinOperation)
+    extr.SetDistanceExtent(lengthMm / 10.0, PartFeatureExtentDirectionEnum.kPositiveExtentDirection)
+    cd.Features.ExtrudeFeatures.Add(extr)
+
+    If stockOnly Then
+        pd.Update()
+        Dim stockPath As String = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(sourcePath), _
+                  SafeName(System.IO.Path.GetFileNameWithoutExtension(sourcePath)) & "_ST_R12_ONLY.ipt")
+        If System.IO.File.Exists(stockPath) Then
+            stockPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(sourcePath), _
+                        SafeName(System.IO.Path.GetFileNameWithoutExtension(sourcePath)) & "_ST_R12_ONLY_" & DateTime.Now.ToString("yyyyMMdd_HHmmss") & ".ipt")
+        End If
+        pd.SaveAs(stockPath, False)
+        MessageBox.Show("ST only: flange=" & flangeMm & "mm; web=" & webMm & _
+            "mm; root R=" & radiusMm & "mm; arcs=" & sk.SketchArcs.Count.ToString() & _
+            "; area=" & nominalAreaMm2.ToString("F3", CultureInfo.InvariantCulture) & " mm2" & vbCrLf & _
+            "Only base extrusion. No BO/AK/B0. File: " & stockPath, "ICIMCO ST VALIDATION")
+        Return
+    End If
+
+    Dim parsedHoles As Integer = 0
+    Dim invalidHoles As Integer = 0
+    Dim todo As New Dictionary(Of String, List(Of Double()))(StringComparer.OrdinalIgnoreCase)
+    For Each h As String In holeData
+        Dim t As String() = Tokens(h)
+        If t.Length < 4 Then
+            invalidHoles += 1 : Continue For
+        End If
+        Dim side As String = t(0).ToLowerInvariant()
+        If side <> "v" AndAlso side <> "o" AndAlso side <> "u" Then
+            invalidHoles += 1 : Continue For
+        End If
+        Try
+            Dim xx As Double = ValToken(t(1))
+            Dim yy As Double = ValToken(t(2))
+            Dim dia As Double = ValToken(t(3))
+            If dia <= 0 OrElse xx < 0 OrElse xx > lengthMm OrElse yy < 0 Then
+                invalidHoles += 1 : Continue For
+            End If
+            If Not todo.ContainsKey(side) Then todo.Add(side, New List(Of Double())())
+            todo(side).Add(New Double() {xx, yy, dia})
+        Catch
+            invalidHoles += 1
+        End Try
+    Next
+
+    ' Reconstruct BO circular through-holes on their referenced faces.
+    ' Datum assumption: v = web (Y maps across 250 depth),
+    ' o = near flange (Y maps across 90 width), u = opposite flange.
+    For Each side As String In todo.Keys
+        Try
+            Dim face As Face = FindFace(cd, side, heightMm)
+            If face Is Nothing Then
+                invalidHoles += todo(side).Count
+                Continue For
+            End If
+            Dim hs As PlanarSketch = cd.Sketches.Add(face)
+            For Each h As Double() In todo(side)
+                Dim holeCenter3D As Inventor.Point
+                If side = "v" Then
+                    holeCenter3D = tg.CreatePoint(0, h(1) / 10.0, h(0) / 10.0)
+                ElseIf side = "o" Then
+                    holeCenter3D = tg.CreatePoint(h(1) / 10.0, 0, h(0) / 10.0)
+                Else
+                    holeCenter3D = tg.CreatePoint(h(1) / 10.0, heightMm / 10.0, h(0) / 10.0)
+                End If
+                Dim center As Point2d = hs.ModelToSketchSpace(holeCenter3D)
+                hs.SketchCircles.AddByCenterRadius(center, h(2) / 20.0)
+                parsedHoles += 1
+            Next
+            Dim cp As Profile = hs.Profiles.AddForSolid()
+            Dim cdef As ExtrudeDefinition = cd.Features.ExtrudeFeatures.CreateExtrudeDefinition(cp, PartFeatureOperationEnum.kCutOperation)
+            cdef.SetThroughAllExtent(PartFeatureExtentDirectionEnum.kNegativeExtentDirection)
+            cd.Features.ExtrudeFeatures.Add(cdef)
+        Catch ex As Exception
+            invalidHoles += todo(side).Count
+            parsedHoles -= todo(side).Count
+            unhandled.Add("BO-" & side & " (" & ex.Message & ")")
+        End Try
+    Next
+
+    ' AK contour -> genuine material removal outside the declared outline.
+    ' Polygon corner radii are not yet solved: flagged explicitly rather than silently certified.
+    Dim builtAk As Integer = 0
+    Dim failedAk As New List(Of String)()
+    Dim rounded As Integer = 0
+    Dim builtIk As Integer = 0
+    Dim deniedRounded As Integer = 0
+    For ci As Integer = 0 To contourData.Count - 1
+        Dim linesAk As List(Of String) = contourData(ci)
+        Try
+            Dim sideAk As String = ""
+            Dim coords As New List(Of Double())()
+            Dim hasArc As Boolean = False
+            For Each a As String In linesAk
+                Dim t As String() = Tokens(a)
+                If t.Length < 4 Then Throw New Exception("Missing contour coordinate")
+                Dim sideNow As String = t(0).ToLowerInvariant()
+                If sideNow <> "v" AndAlso sideNow <> "o" AndAlso sideNow <> "u" Then Throw New Exception("Unknown face " & sideNow)
+                If sideAk = "" Then sideAk = sideNow
+                If sideAk <> sideNow Then Throw New Exception("Mixed-face contour")
+                Dim z As Double = ValToken(t(3))
+                If Math.Abs(z) > 0.00001 Then
+                    rounded += 1
+                    hasArc = True
+                End If
+                coords.Add(New Double() {ValToken(t(1)), ValToken(t(2))})
+            Next
+            If coords.Count < 4 Then Throw New Exception("Contour needs >=3 vertices and closure")
+            If Not Same2(coords(0), coords(coords.Count - 1)) Then Throw New Exception("Contour is not closed")
+            coords.RemoveAt(coords.Count - 1)
+            If Math.Abs(PolygonArea(coords)) < 1.0 Then Throw New Exception("Degenerate contour")
+            ' Do not turn an actual rounded contour into an incorrect sharp cut.
+            ' V06: approximate nonzero signed DSTV arc entries with tessellated fillets.
+            ' Exact signed-radius semantics require verification against a known DSTV reference.
+            If hasArc Then
+                coords = RoundAkVertices(coords, linesAk, 12)
+                If coords.Count < 3 OrElse Math.Abs(PolygonArea(coords)) < 1.0 Then
+                    Throw New Exception("Filleted AK profile is invalid")
+                End If
+            End If
+            If contourSides(ci) = "IK" Then
+                CutInsideIk(cd, tg, sideAk, coords, heightMm)
+                builtIk += 1
+            Else
+                CutOutsideAk(cd, tg, sideAk, coords, lengthMm, heightMm, widthMm, webMm, flangeMm)
+                builtAk += 1
+            End If
+        Catch ex As Exception
+            failedAk.Add("AK #" & (ci + 1).ToString() & ": " & ex.Message)
+        End Try
+    Next
+
+    ' SI is a marking instruction, not removal of structural material.
+    ' Preserve it as metadata for follow-up engraving/marking machine routing.
+    Dim markText As String = String.Join(" | ", siData)
+    Dim auxiliaryCount As Integer = 0
+    For Each k As String In planeData.Keys
+        auxiliaryCount += planeData(k).Count
+    Next
+
+    pd.Update()
+    ' Store an exact source round-trip snapshot, not a claimed CAD-to-NC converter.
+    Dim props As PropertySet = pd.PropertySets.Item("Inventor User Defined Properties")
+    SaveProp(props, "ICIMCO_NC_SOURCE", Convert.ToBase64String(Encoding.UTF8.GetBytes(content)))
+    SaveProp(props, "ICIMCO_NC_FEATURES", cd.Features.ExtrudeFeatures.Count.ToString(CultureInfo.InvariantCulture))
+    SaveProp(props, "ICIMCO_NC_IMPORT_COMPLETE", "NO")
+    SaveProp(props, "ICIMCO_ST_PFC_AREA_MM2", nominalAreaMm2.ToString("F3", CultureInfo.InvariantCulture))
+    SaveProp(props, "ICIMCO_NC_LENGTH_MM", lengthMm.ToString(CultureInfo.InvariantCulture))
+    SaveProp(props, "ICIMCO_NC_PART_MARK", partMark)
+    SaveProp(props, "ICIMCO_NC_UNSUPPORTED", "Contour errors=" & String.Join(" | ", failedAk) & "; radius-points=" & rounded.ToString() & "; E/B lines=" & auxiliaryCount.ToString())
+    SaveProp(props, "ICIMCO_SI_MARK", markText)
+
+    Dim savePath As String = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(sourcePath), _
+                                SafeName(System.IO.Path.GetFileNameWithoutExtension(sourcePath)) & "_ICIMCO_PREVIEW.ipt")
+    If System.IO.File.Exists(savePath) Then
+        savePath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(sourcePath), _
+                      SafeName(System.IO.Path.GetFileNameWithoutExtension(sourcePath)) & "_ICIMCO_PREVIEW_" & _
+                      DateTime.Now.ToString("yyyyMMdd_HHmmss") & ".ipt")
+    End If
+    pd.SaveAs(savePath, False)
+    Dim report As New StringBuilder()
+    report.AppendLine("DSTV V09 / AK SINGLE-FACE CUT - CHUA PHE DUYET GIA CONG")
+    report.AppendLine("Part: " & partMark & " | " & header(6) & " | " & grade)
+    report.AppendLine("Kích thước (mm): " & lengthMm & " x " & heightMm & " x " & widthMm)
+    report.AppendLine("ST: flange thickness=" & flangeMm & " | web thickness=" & webMm & " | root radius=" & radiusMm & " mm")
+    report.AppendLine("ST: theoretical section area=" & nominalAreaMm2.ToString("F2", CultureInfo.InvariantCulture) & " mm2")
+    report.AppendLine("Lỗ BO thử dựng: " & parsedHoles & "; chưa dựng/không hợp lệ: " & invalidHoles)
+    report.AppendLine("AK outer cuts: " & builtAk)
+    report.AppendLine("IK inner cuts: " & builtIk)
+    report.AppendLine("Rounded contours attempted (polygonal approximation): " & rounded)
+    report.AppendLine("Contour failures: " & String.Join(" | ", failedAk))
+    report.AppendLine("Nonzero AK arc parameters approximated: " & rounded.ToString())
+    report.AppendLine("SI marking stored in iProperties: " & siData.Count.ToString())
+    report.AppendLine("E/B auxiliary-plane raw data lines (NOT CUT): " & auxiliaryCount.ToString())
+    report.AppendLine("Bán kính góc tiết diện R" & radiusMm & " mm: đã đưa vào Sketch phôi")
+    report.AppendLine("Khối khác: " & String.Join(", ", unhandled))
+    report.AppendLine("Chưa bảo đảm model đúng sản xuất, KHÔNG xuất gia công từ preview.")
+    report.AppendLine("Đã lưu: " & savePath)
+    MessageBox.Show(report.ToString(), "ICIMCO DSTV IMPORT")
+End Sub
+
+
+Private Function Same2(ByVal a As Double(), ByVal b As Double()) As Boolean
+    Return Math.Abs(a(0) - b(0)) < 0.001 AndAlso Math.Abs(a(1) - b(1)) < 0.001
+End Function
+
+Private Function PolygonArea(ByVal p As List(Of Double())) As Double
+    Dim a As Double = 0
+    For i As Integer = 0 To p.Count - 1
+        Dim j As Integer = (i + 1) Mod p.Count
+        a += p(i)(0) * p(j)(1) - p(j)(0) * p(i)(1)
+    Next
+    Return 0.5 * a
+End Function
+
+Private Function AkPoint(ByVal tg As TransientGeometry, ByVal side As String, ByVal a As Double(), Optional ByVal heightMm As Double = 0) As Inventor.Point
+    If side = "v" Then Return tg.CreatePoint(0, a(1) / 10.0, a(0) / 10.0)
+    If side = "o" Then Return tg.CreatePoint(a(1) / 10.0, 0, a(0) / 10.0)
+    Return tg.CreatePoint(a(1) / 10.0, heightMm / 10.0, a(0) / 10.0)
+End Function
+
+Private Sub ClosedLoop(ByVal sk As PlanarSketch, ByVal tg As TransientGeometry, ByVal coords As List(Of Inventor.Point))
+    If coords.Count < 3 Then Throw New Exception("Too few loop vertices")
+    Dim a As Inventor.Point2d = sk.ModelToSketchSpace(coords(0))
+    Dim b As Inventor.Point2d = sk.ModelToSketchSpace(coords(1))
+    Dim first As SketchLine = sk.SketchLines.AddByTwoPoints(a, b)
+    Dim last As SketchLine = first
+    For i As Integer = 2 To coords.Count - 1
+        last = sk.SketchLines.AddByTwoPoints(last.EndSketchPoint, sk.ModelToSketchSpace(coords(i)))
+    Next
+    sk.SketchLines.AddByTwoPoints(last.EndSketchPoint, first.StartSketchPoint)
+End Sub
+
+Private Sub CutInsideIk(ByVal cd As PartComponentDefinition, ByVal tg As TransientGeometry, _
+                        ByVal side As String, ByVal pts As List(Of Double()), ByVal heightMm As Double)
+    Dim target As Face = FindFace(cd, side, heightMm)
+    If target Is Nothing Then Throw New Exception("Không tìm thấy mặt gia công IK " & side)
+    Dim sk As PlanarSketch = cd.Sketches.Add(target)
+    Dim inner As New List(Of Inventor.Point)()
+    For Each a As Double() In pts
+        inner.Add(AkPoint(tg, side, a, heightMm))
+    Next
+    ClosedLoop(sk, tg, inner)
+    Dim pro As Inventor.Profile = sk.Profiles.AddForSolid()
+    Dim cut As ExtrudeDefinition = cd.Features.ExtrudeFeatures.CreateExtrudeDefinition(pro, PartFeatureOperationEnum.kCutOperation)
+    cut.SetThroughAllExtent(PartFeatureExtentDirectionEnum.kNegativeExtentDirection)
+    cd.Features.ExtrudeFeatures.Add(cut)
+End Sub
+
+Private Sub CutOutsideAk(ByVal cd As PartComponentDefinition, ByVal tg As TransientGeometry, _
+                         ByVal side As String, ByVal pts As List(Of Double()), _
+                         ByVal lengthMm As Double, ByVal heightMm As Double, ByVal widthMm As Double, _
+                         ByVal webMm As Double, ByVal flangeMm As Double)
+    ' V09: MACHINE ONE FACE AT A TIME. NO THROUGH-ALL, NO CROSS-FACE CUTS.
+    ' v: web outer face, depth web thickness. o/u: flange outer faces, depth flange thickness.
+    ' Keep BO, B0, E0, ST completely unchanged from V08.
+    Dim target As Face = FindFace(cd, side, heightMm)
+    If target Is Nothing Then Throw New Exception("AK " & side & ": cannot find planar machining face")
+    Dim sk As PlanarSketch = cd.Sketches.Add(target)
+    sk.Name = "ICIMCO_AK_PROFILE_" & side.ToUpperInvariant()
+
+    ' Rectangular machining envelope with the retained AK boundary as an internal island.
+    ' Coordinates are converted into each face's sketch plane by AkPoint/ModelToSketchSpace.
+    Dim minx As Double = -30.0, maxx As Double = lengthMm + 30.0
+    Dim depth As Double = If(side = "v", heightMm, widthMm)
+    Dim miny As Double = -30.0, maxy As Double = depth + 30.0
+    For Each v As Double() In pts
+        minx = Math.Min(minx, v(0) - 10.0)
+        maxx = Math.Max(maxx, v(0) + 10.0)
+        miny = Math.Min(miny, v(1) - 10.0)
+        maxy = Math.Max(maxy, v(1) + 10.0)
+    Next
+    Dim outer As New List(Of Inventor.Point)()
+    outer.Add(AkPoint(tg, side, New Double() {minx, miny}, heightMm))
+    outer.Add(AkPoint(tg, side, New Double() {maxx, miny}, heightMm))
+    outer.Add(AkPoint(tg, side, New Double() {maxx, maxy}, heightMm))
+    outer.Add(AkPoint(tg, side, New Double() {minx, maxy}, heightMm))
+    ClosedLoop(sk, tg, outer)
+    Dim island As New List(Of Inventor.Point)()
+    For Each v As Double() In pts
+        island.Add(AkPoint(tg, side, v, heightMm))
+    Next
+    ClosedLoop(sk, tg, island)
+
+    ' Stock face thickness in cm (Inventor internal length unit); 0.2 mm harmless overrun.
+    Dim thicknessMm As Double = If(side = "v", webMm, flangeMm)
+    If thicknessMm <= 0 Then Throw New Exception("AK " & side & ": invalid material thickness")
+    Dim cutDepthCm As Double = (thicknessMm + 0.2) / 10.0
+    Dim vBefore As Double = SolidVolumeCm3(cd)
+    Dim failures As New List(Of String)()
+    Dim directions As PartFeatureExtentDirectionEnum() = { _
+        PartFeatureExtentDirectionEnum.kNegativeExtentDirection, _
+        PartFeatureExtentDirectionEnum.kPositiveExtentDirection}
+
+    For Each direction As PartFeatureExtentDirectionEnum In directions
+        Dim tx As Inventor.Transaction = Nothing
+        Try
+            tx = ThisApplication.TransactionManager.StartTransaction(cd.Document, "AK " & side & " cut single face")
+            Dim profile As Inventor.Profile = sk.Profiles.AddForSolid(True)
+            Dim def As ExtrudeDefinition = cd.Features.ExtrudeFeatures.CreateExtrudeDefinition( _
+                profile, PartFeatureOperationEnum.kCutOperation)
+            def.SetDistanceExtent(cutDepthCm, direction)
+            Dim feat As ExtrudeFeature = cd.Features.ExtrudeFeatures.Add(def)
+            cd.Document.Update()
+            Dim vAfter As Double = SolidVolumeCm3(cd)
+            If vAfter < vBefore - Math.Max(0.000001, vBefore * 0.00000001) Then
+                feat.Name = "ICIMCO_AK_FACE_" & side.ToUpperInvariant() & "_CUT"
+                tx.End()
+                Return
+            End If
+            failures.Add(direction.ToString() & " => no volume removed; " & _
+                         vBefore.ToString("F5", CultureInfo.InvariantCulture) & " -> " & _
+                         vAfter.ToString("F5", CultureInfo.InvariantCulture))
+            tx.Abort()
+            tx = Nothing
+        Catch ex As Exception
+            failures.Add(direction.ToString() & " => " & ex.Message)
+            If tx IsNot Nothing Then
+                Try
+                    tx.Abort()
+                Catch
+                End Try
+            End If
+        End Try
+    Next
+    Throw New Exception("AK " & side & " failed finite-depth face cut (" & _
+                        thicknessMm.ToString("F2", CultureInfo.InvariantCulture) & _
+                        " mm). " & String.Join(" | ", failures.ToArray()))
+End Sub
+
+Private Function SolidVolumeCm3(ByVal cd As PartComponentDefinition) As Double
+    Dim total As Double = 0.0
+    For Each solid As SurfaceBody In cd.SurfaceBodies
+        If solid.IsSolid Then total += solid.Volume(0.01)
+    Next
+    Return total
+End Function
+
+' Rounded polygon corners: vertex signed R is converted to tangent arc samples.
+' This is a geometric approximation for preview and NOT certified DSTV interpolation.
+Private Function RoundAkVertices(ByVal raw As List(Of Double()), _
+                                  ByVal sourceLines As List(Of String), _
+                                  ByVal subdivisions As Integer) As List(Of Double())
+    Dim n As Integer = raw.Count
+    Dim output As New List(Of Double())()
+    If n < 3 Then Return raw
+    For i As Integer = 0 To n - 1
+        Dim fields As String() = Tokens(sourceLines(i))
+        Dim r As Double = Math.Abs(ValToken(fields(3)))
+        Dim v As Double() = raw(i)
+        If r < 0.00001 Then
+            output.Add(New Double() {v(0), v(1)})
+            Continue For
+        End If
+        Dim p As Double() = raw((i + n - 1) Mod n)
+        Dim q As Double() = raw((i + 1) Mod n)
+        Dim dx0 As Double = p(0) - v(0), dy0 As Double = p(1) - v(1)
+        Dim dx1 As Double = q(0) - v(0), dy1 As Double = q(1) - v(1)
+        Dim l0 As Double = Math.Sqrt(dx0 * dx0 + dy0 * dy0)
+        Dim l1 As Double = Math.Sqrt(dx1 * dx1 + dy1 * dy1)
+        If l0 < 0.001 OrElse l1 < 0.001 Then Throw New Exception("AK fillet has zero-length neighbor")
+        Dim ux0 As Double = dx0 / l0, uy0 As Double = dy0 / l0
+        Dim ux1 As Double = dx1 / l1, uy1 As Double = dy1 / l1
+        Dim angle As Double = Math.Acos(Math.Max(-1.0, Math.Min(1.0, ux0 * ux1 + uy0 * uy1)))
+        If angle < 0.03 OrElse Math.Abs(Math.PI - angle) < 0.03 Then Throw New Exception("AK fillet corner angle is degenerate")
+        Dim d As Double = r / Math.Tan(angle / 2.0)
+        If d > Math.Min(l0, l1) * 0.48 Then Throw New Exception("AK fillet overlaps adjacent segments")
+        Dim bx As Double = ux0 + ux1, by As Double = uy0 + uy1
+        Dim bl As Double = Math.Sqrt(bx * bx + by * by)
+        Dim cx As Double = v(0) + bx / bl * r / Math.Sin(angle / 2.0)
+        Dim cy As Double = v(1) + by / bl * r / Math.Sin(angle / 2.0)
+        Dim a0x As Double = v(0) + ux0 * d, a0y As Double = v(1) + uy0 * d
+        Dim a1x As Double = v(0) + ux1 * d, a1y As Double = v(1) + uy1 * d
+        Dim th0 As Double = Math.Atan2(a0y - cy, a0x - cx)
+        Dim th1 As Double = Math.Atan2(a1y - cy, a1x - cx)
+        Dim cross As Double = ux0 * uy1 - uy0 * ux1
+        Dim sweep As Double = th1 - th0
+        If cross < 0 Then
+            While sweep < 0 : sweep += 2.0 * Math.PI : End While
+        Else
+            While sweep > 0 : sweep -= 2.0 * Math.PI : End While
+        End If
+        If Math.Abs(sweep) > Math.PI Then Throw New Exception("AK fillet major arc is invalid")
+        For j As Integer = 0 To subdivisions
+            Dim th As Double = th0 + sweep * CDbl(j) / CDbl(subdivisions)
+            output.Add(New Double() {cx + r * Math.Cos(th), cy + r * Math.Sin(th)})
+        Next
+    Next
+    Return output
+End Function
+
+Private Function FindFace(ByVal cd As PartComponentDefinition, ByVal side As String, ByVal hMm As Double) As Face
+    For Each fc As Face In cd.SurfaceBodies.Item(1).Faces
+        If fc.SurfaceType <> SurfaceTypeEnum.kPlaneSurface Then Continue For
+        Dim p As Point = fc.PointOnFace
+        Dim n As UnitVector = CType(fc.Geometry, Plane).Normal
+        If side = "v" AndAlso Math.Abs(p.X) < 0.0001 AndAlso n.X < -0.9 Then Return fc
+        If side = "o" AndAlso Math.Abs(p.Y) < 0.0001 AndAlso n.Y < -0.9 Then Return fc
+        If side = "u" AndAlso Math.Abs(p.Y - hMm / 10.0) < 0.0001 AndAlso n.Y > 0.9 Then Return fc
+    Next
+    Return Nothing
+End Function
+
+Private Sub SaveProp(ByVal ps As PropertySet, ByVal key As String, ByVal value As String)
+    Try
+        ps.Item(key).Value = value
+    Catch
+        ps.Add(value, key)
+    End Try
+End Sub
+
+Private Function ReadProp(ByVal ps As PropertySet, ByVal key As String) As String
+    Return CStr(ps.Item(key).Value)
+End Function
+
+Private Sub ExportNc()
+    If ThisApplication.ActiveDocumentType <> DocumentTypeEnum.kPartDocumentObject Then
+        Throw New Exception("Hãy kích hoạt file Part (.ipt) đã nhập bằng tool trước khi xuất.")
+    End If
+    Dim pd As PartDocument = CType(ThisApplication.ActiveDocument, PartDocument)
+    Dim ps As PropertySet = pd.PropertySets.Item("Inventor User Defined Properties")
+    Dim src As String
+    Dim savedCount As Integer
+    Try
+        src = Encoding.UTF8.GetString(Convert.FromBase64String(ReadProp(ps, "ICIMCO_NC_SOURCE")))
+        savedCount = Integer.Parse(ReadProp(ps, "ICIMCO_NC_FEATURES"), CultureInfo.InvariantCulture)
+    Catch
+        Throw New Exception("Part này không có nguồn DSTV gốc. MVP01 không giả lập NC cho chi tiết CAD tùy ý.")
+    End Try
+    If pd.ComponentDefinition.Features.ExtrudeFeatures.Count <> savedCount OrElse pd.Dirty Then
+        Throw New Exception("Part đã thay đổi hoặc chưa lưu; không thể xuất nguyên file NC cũ như bản gia công cập nhật.")
+    End If
+    Dim pathOut As String = ""
+    Using dlg As New SaveFileDialog()
+        dlg.Filter = "DSTV NC1 (*.nc1)|*.nc1|DSTV NC (*.nc)|*.nc"
+        dlg.FileName = SafeName(ReadProp(ps, "ICIMCO_NC_PART_MARK")) & ".nc1"
+        If dlg.ShowDialog() <> DialogResult.OK Then Return
+        pathOut = dlg.FileName
+    End Using
+    System.IO.File.WriteAllText(pathOut, src, Encoding.UTF8)
+    MessageBox.Show("Đã khôi phục bản NC NGUYÊN GỐC: " & pathOut & vbCrLf & _
+                    "Không phải dữ liệu NC sinh mới từ hình học đã sửa.", "ICIMCO DSTV EXPORT")
+End Sub
