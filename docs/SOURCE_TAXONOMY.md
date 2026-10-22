@@ -1,0 +1,17 @@
+# HIEU Engineering Source Hub — Source Taxonomy
+
+Cập nhật: 2026-10-22. Mỗi nhóm có trạng thái: `legacy`, `experimental`, `candidate`, `released`, `pending-review`.
+
+| Nhóm | Đường dẫn | Trạng thái kiểm kê |
+|---|---|---|
+| Inventor iLogic/BOM | `inventor/ilogic/bom/` | legacy/experimental, chưa nghiệm thu Inventor |
+| Inventor CAM/DSTV | `inventor/ilogic/cam-dstv/` | experimental |
+| Inventor C# Add-ins | `inventor/addins/` (dự kiến) | pending-review |
+| AutoCAD LISP | `autocad/lisp/` | một phần đã nhập, các tool còn lại pending-review |
+| Tekla | `tekla/` (dự kiến) | pending-review |
+| Excel VBA | `excel/vba/` (dự kiến) | pending-review |
+| IELTS Fighter | `education/ielts-fighter/` (dự kiến) | pending-review |
+| DouViet Studio code | `web/douviet/` (dự kiến) | pending-review, không có bản build xác minh |
+| DouViet localization specification | `docs/douviet/` | experimental documentation, V1.0 |
+
+Các thư mục “dự kiến” không đồng nghĩa mã nguồn đã được công khai. Mọi nhập nguồn phải có checksum, provenance, rà soát secrets và quyền phát hành.

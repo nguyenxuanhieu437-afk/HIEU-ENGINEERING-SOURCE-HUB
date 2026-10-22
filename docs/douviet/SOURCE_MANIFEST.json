@@ -1,0 +1,19 @@
+{
+  "catalog_id": "HIEU-ENG-SOURCE-2026-001",
+  "entry": "douviet-localization-skillpack-v1.0",
+  "source": "ChatGPT user Library /DouViet_22_Ky_Nang_Toan_Dien.md",
+  "source_modified_at_utc": "2026-10-22T04:46:33.358933Z",
+  "source_sha256": "cf6b30429fb7e4002b89ceb4dcda2ddfcce5cc4605be5e1a73a029395a6a2870",
+  "archive_sha256": "b10ade7909f54d6f07ea81207134847e04f1587a1321ee9a8f762ed8e46d458b",
+  "status": "experimental-documentation",
+  "authorship": "User-requested original documentation, no third-party source code or model weights included",
+  "license": "No third-party license asserted; underlying referenced projects retain their own licenses",
+  "review": {
+    "secret_scan": "No credential or personal-data patterns detected in the markdown and ZIP text files; heuristic scan only",
+    "third_party": "References/URLs only; no vendor source code bundled",
+    "tests": "3/3 structure tests PASS",
+    "engine_integration": "NOT VERIFIED",
+    "website_acceptance": "NOT VERIFIED"
+  },
+  "deduplication": "Not present in main tree 224a5ab7710a3b3467a403fed89a913b23adf176"
+}

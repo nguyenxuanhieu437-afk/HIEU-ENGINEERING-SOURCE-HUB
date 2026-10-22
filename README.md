@@ -43,3 +43,11 @@ Hiện chưa xác nhận build toàn bộ Add-in / iLogic và chưa có kết qu
 Không commit file chứa token, API key, cấu hình bí mật, dữ liệu khách hàng hay mã nguồn công ty không thuộc quyền công bố. Những credentials từng được chia sẻ trong chat phải được thu hồi và tạo mới trước khi sử dụng.
 
 **Owner:** nguyenxuanhieu437-afk · **Catalog ID:** HIEU-ENG-SOURCE-2026-001
+
+## DouViet Studio — tài liệu thiết kế mới (22/10/2026)
+
+- [Localization SkillPack V1.0 — 22 kỹ năng](docs/douviet/LOCALIZATION_SKILLS_V1.md): đặc tả, data contract, QA và hướng tích hợp Trung → Việt; **không phải engine đã build**.
+- [Manifest nguồn và trạng thái kiểm chứng](docs/douviet/SOURCE_MANIFEST.json).
+- [Taxonomy và trạng thái nhập nguồn](docs/SOURCE_TAXONOMY.md); [changelog](docs/CHANGELOG.md).
+
+Tài liệu này chỉ tham khảo tên và URL dự án bên thứ ba; **không phân phối mã, model weights, video hay thư viện bên thứ ba**. Giấy phép phân phối lại các engine/model phải kiểm tra riêng.
