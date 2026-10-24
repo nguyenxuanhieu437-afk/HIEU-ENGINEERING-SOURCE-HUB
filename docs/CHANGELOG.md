@@ -1,5 +1,11 @@
 # Source Hub — Changelog
 
+## 2026-10-25 — DouViet Voice Casting / Cinematic Audio V2 (documentation only)
+
+- Indexed an original technical summary from two identical user Library research notes dated 24/10/2026; duplicates suppressed with an extracted-text SHA-256 manifest.
+- Updated README and taxonomy. No third-party code, voice models, video, audio, images or credentials published.
+- No CAM/BOM/Add-in/LISP/Tekla/VBA/IELTS executable source release; no engine build, integration or end-to-end dubbing tests claimed. No Git tag or release.
+
 ## 2026-10-22 — DouViet Localization SkillPack V1.0 (documentation only)
 
 - Thêm tài liệu đặc tả 22 kỹ năng dịch video tiếng Trung sang tiếng Việt, schema, prompt, QC, workflow, tham khảo engine local.

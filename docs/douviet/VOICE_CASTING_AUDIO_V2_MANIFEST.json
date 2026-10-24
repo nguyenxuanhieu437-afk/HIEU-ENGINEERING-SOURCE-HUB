@@ -1,0 +1,30 @@
+{
+  "catalog_id": "HIEU-ENG-SOURCE-2026-001",
+  "entry": "douviet-voice-casting-audio-v2",
+  "status": "experimental-documentation",
+  "source_report_date": "2026-10-24",
+  "indexed_date": "2026-10-25",
+  "source": "ChatGPT user Library /VIDEO DOUYIN",
+  "duplicate_files": [
+    "Văn bản đã dán (1)(5).txt",
+    "Văn bản đã dán (1)(6).txt"
+  ],
+  "source_modified_utc": [
+    "2026-10-24T16:12:01.620959Z",
+    "2026-10-24T16:54:35.479080Z"
+  ],
+  "source_extracted_text_sha256": "59664fb896a6a2b2c360e61566963bf57891157a2f74b96e562ec556c9fdf021",
+  "source_extracted_utf8_bytes": 20561,
+  "source_metadata_raw_size_bytes": 20965,
+  "checksum_scope": "Extracted UTF-8 text only; raw-byte materialization unavailable. Raw uploaded-byte SHA-256 not verified.",
+  "deduplication": "Extracted text identical; one summary indexed",
+  "rights": "Original new summary of user-supplied notes. No third-party source, pretrained weights, voice, audio, video or images redistributed; underlying licenses and voice rights remain unverified.",
+  "security_review": "Heuristic check of extracted source and proposed summary found no email addresses, private Windows user paths, credential assignments or common token patterns; not a full binary scan.",
+  "tests": {
+    "documentation_only": true,
+    "engine_integration": "NOT VERIFIED",
+    "media_end_to_end": "NOT VERIFIED"
+  },
+  "git_tag_created": false,
+  "release_created": false
+}

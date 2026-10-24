@@ -51,3 +51,8 @@ Không commit file chứa token, API key, cấu hình bí mật, dữ liệu kh�
 - [Taxonomy và trạng thái nhập nguồn](docs/SOURCE_TAXONOMY.md); [changelog](docs/CHANGELOG.md).
 
 Tài liệu này chỉ tham khảo tên và URL dự án bên thứ ba; **không phân phối mã, model weights, video hay thư viện bên thứ ba**. Giấy phép phân phối lại các engine/model phải kiểm tra riêng.
+
+### DouViet — Voice Casting / Cinematic Audio (25/10/2026)
+
+- [Voice Casting Engine 2.0 & Cinematic Audio Mixer — research proposal](docs/douviet/VOICE_CASTING_AUDIO_V2.md): voice profiling, character casting, soundtrack preservation and QA gates. **Documentation only; no integrated engine or dubbing test is claimed.**
+- [Source provenance and duplicate manifest](docs/douviet/VOICE_CASTING_AUDIO_V2_MANIFEST.json): two identical extracted Library texts indexed once.
