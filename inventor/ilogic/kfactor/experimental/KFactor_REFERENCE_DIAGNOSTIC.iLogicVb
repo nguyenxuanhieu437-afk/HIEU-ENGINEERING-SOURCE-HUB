@@ -1,0 +1,117 @@
+﻿Sub Main()
+    ' Read-only Inventor reference audit: never edits parts or assemblies.
+    Dim asmDoc As AssemblyDocument = TryCast(ThisDoc.Document, AssemblyDocument)
+    If asmDoc Is Nothing Then
+        MessageBox.Show("Run this diagnostic from an Assembly (.iam).", "Reference diagnostic")
+        Exit Sub
+    End If
+
+    Dim scannedOwners As New System.Collections.Generic.HashSet(Of String)(System.StringComparer.OrdinalIgnoreCase)
+    Dim scannedLinks As New System.Collections.Generic.HashSet(Of String)(System.StringComparer.OrdinalIgnoreCase)
+    Dim rows As New System.Collections.Generic.List(Of String)
+    Dim missingTargets As New System.Collections.Generic.HashSet(Of String)(System.StringComparer.OrdinalIgnoreCase)
+    Dim suppressedTargets As New System.Collections.Generic.HashSet(Of String)(System.StringComparer.OrdinalIgnoreCase)
+    Dim suppressedLinks As Integer = 0
+    Dim missingLinks As Integer = 0
+    Dim validLinks As Integer = 0
+    Dim scanErrors As Integer = 0
+
+    InspectParent(asmDoc, scannedOwners, scannedLinks, rows, missingTargets, suppressedTargets, suppressedLinks, missingLinks, validLinks, scanErrors)
+
+    Try
+        For Each doc As Document In asmDoc.AllReferencedDocuments
+            If doc IsNot Nothing AndAlso doc.DocumentType = DocumentTypeEnum.kAssemblyDocumentObject Then
+                InspectParent(doc, scannedOwners, scannedLinks, rows, missingTargets, suppressedTargets, suppressedLinks, missingLinks, validLinks, scanErrors)
+            End If
+        Next
+    Catch ex As System.Exception
+        scanErrors += 1
+        rows.Add("SCAN_ERROR" & vbTab & "AllReferencedDocuments" & vbTab & ex.Message)
+    End Try
+
+    Dim report As New System.Text.StringBuilder
+    report.AppendLine("INVENTOR REFERENCE AUDIT (READ ONLY)")
+    report.AppendLine("Root: " & asmDoc.FullDocumentName)
+    report.AppendLine("Created: " & System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"))
+    report.AppendLine("Scope: unique owner-document -> referenced-document links")
+    report.AppendLine("Suppressed links: " & suppressedLinks)
+    report.AppendLine("Distinct suppressed targets: " & suppressedTargets.Count)
+    report.AppendLine("Truly unresolved (not suppressed) links: " & missingLinks)
+    report.AppendLine("Distinct missing targets: " & missingTargets.Count)
+    report.AppendLine("Resolved links: " & validLinks)
+    report.AppendLine("Scan errors: " & scanErrors)
+    report.AppendLine("Assemblies inspected: " & scannedOwners.Count)
+    report.AppendLine()
+    report.AppendLine("STATUS" & vbTab & "PARENT ASSEMBLY" & vbTab & "REFERENCED DOCUMENT / DETAILS")
+    For Each r As String In rows
+        report.AppendLine(r)
+    Next
+
+    Dim reportPath As String = ""
+    Try
+        Dim reportFolder As String = System.IO.Path.GetDirectoryName(asmDoc.FullFileName)
+        If System.String.IsNullOrWhiteSpace(reportFolder) Then reportFolder = System.IO.Path.GetTempPath()
+        reportPath = System.IO.Path.Combine(reportFolder, "KFactor_Reference_Audit_" & System.DateTime.Now.ToString("yyyyMMdd_HHmmss") & ".txt")
+        System.IO.File.WriteAllText(reportPath, report.ToString(), New System.Text.UTF8Encoding(True))
+    Catch
+        Try
+            reportPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "KFactor_Reference_Audit_" & System.DateTime.Now.ToString("yyyyMMdd_HHmmss") & ".txt")
+            System.IO.File.WriteAllText(reportPath, report.ToString(), New System.Text.UTF8Encoding(True))
+        Catch ex As System.Exception
+            reportPath = "(Could not write audit: " & ex.Message & ")"
+        End Try
+    End Try
+
+    MessageBox.Show("REFERENCE DIAGNOSTIC (no model changes)" & vbCrLf & vbCrLf & _
+        "Suppressed references: " & suppressedLinks & " (" & suppressedTargets.Count & " targets)" & vbCrLf & _
+        "Missing (not suppressed): " & missingLinks & " (" & missingTargets.Count & " targets)" & vbCrLf & _
+        "Resolved references: " & validLinks & vbCrLf & _
+        "Assemblies inspected: " & scannedOwners.Count & vbCrLf & _
+        "Scan errors: " & scanErrors & vbCrLf & vbCrLf & _
+        "Report: " & reportPath, "Reference diagnostic")
+End Sub
+
+Sub InspectParent(parentDoc As Document, _
+                  scannedOwners As System.Collections.Generic.HashSet(Of String), _
+                  scannedLinks As System.Collections.Generic.HashSet(Of String), _
+                  rows As System.Collections.Generic.List(Of String), _
+                  missingTargets As System.Collections.Generic.HashSet(Of String), _
+                  suppressedTargets As System.Collections.Generic.HashSet(Of String), _
+                  ByRef suppressedLinks As Integer, ByRef missingLinks As Integer, _
+                  ByRef validLinks As Integer, ByRef scanErrors As Integer)
+    Dim ownerName As String = "(unknown parent)"
+    Try
+        ownerName = parentDoc.FullDocumentName
+        If Not scannedOwners.Add(ownerName) Then Exit Sub
+
+        For Each desc As DocumentDescriptor In parentDoc.ReferencedDocumentDescriptors
+            Dim targetName As String = "(unknown target)"
+            Try
+                targetName = desc.FullDocumentName
+                Dim key As String = ownerName & " -> " & targetName
+                If Not scannedLinks.Add(key) Then Continue For
+
+                Dim isSuppressed As Boolean = desc.ReferenceSuppressed
+                Dim isMissing As Boolean = desc.ReferenceMissing
+                If isSuppressed Then
+                    suppressedLinks += 1
+                    suppressedTargets.Add(targetName)
+                    rows.Add("SUPPRESSED" & vbTab & ownerName & vbTab & targetName)
+                ElseIf isMissing Then
+                    missingLinks += 1
+                    missingTargets.Add(targetName)
+                    rows.Add("MISSING" & vbTab & ownerName & vbTab & targetName)
+                Else
+                    validLinks += 1
+                    ' Keep report small: resolved paths are counted but not listed.
+                End If
+            Catch ex As System.Exception
+                scanErrors += 1
+                rows.Add("SCAN_ERROR" & vbTab & ownerName & vbTab & targetName & " -> " & ex.Message)
+            End Try
+        Next
+    Catch ex As System.Exception
+        scanErrors += 1
+        rows.Add("SCAN_ERROR" & vbTab & ownerName & vbTab & ex.Message)
+    End Try
+End Sub

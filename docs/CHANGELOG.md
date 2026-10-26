@@ -1,5 +1,13 @@
 # Source Hub — Changelog
 
+## 2026-10-26 — Inventor iLogic reference diagnostic (experimental)
+
+- Added a user-commissioned, independently generated, read-only K-factor reference diagnostic rule with README and SHA-256 manifest; no Inventor runtime test or release tag.
+- Suppressed and missing references are counted separately; reports are written locally and may include private absolute paths.
+- Kept original and derivative K-factor setter scripts out of this public repository pending upstream authorship/redistribution clearance. The duplicate FIXED and FIXED(1) artifacts share a SHA-256.
+- No new English Fighter, CAM, BOM, C# Add-in, Tekla, Excel VBA or DouViet executable code published.
+
+
 ## 2026-10-25 — DouViet Voice Casting / Cinematic Audio V2 (documentation only)
 
 - Indexed an original technical summary from two identical user Library research notes dated 24/10/2026; duplicates suppressed with an extracted-text SHA-256 manifest.

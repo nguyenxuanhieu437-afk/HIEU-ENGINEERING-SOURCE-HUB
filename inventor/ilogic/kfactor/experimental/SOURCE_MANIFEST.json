@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "project": "Inventor iLogic K-Factor Reference Diagnostic",
+  "status": "experimental",
+  "path": "inventor/ilogic/kfactor/experimental/KFactor_REFERENCE_DIAGNOSTIC.iLogicVb",
+  "original_filename": "KFactor_REFERENCE_DIAGNOSTIC.iLogicVb",
+  "date_created": "2026-10-26",
+  "origin": "User-commissioned assistant-generated diagnostic rule; reviewed independently of third-party K-factor setter",
+  "source_sha256": "7a1a71703f440834a18416dd9a3e3b6a579f60729756d6f1d7c379ecca480c9c",
+  "source_size_bytes": 6491,
+  "source_encoding": "UTF-8 BOM, CRLF",
+  "license": "No standalone open-source license specified; owner retains rights",
+  "audit": {
+    "secret_patterns": "No credential assignment patterns or hard-coded private paths found in source",
+    "third_party_code": "None identified in this diagnostic",
+    "build": "Not tested",
+    "inventor_runtime": "Not tested",
+    "generated_report_privacy": "Reports contain local paths; do not commit"
+  },
+  "excluded_related_sources": [
+    "Change K-factor to 0.5.iLogicVb",
+    "Change%20K-factor%20to%200.5_FIXED.iLogicVb",
+    "Change%20K-factor%20to%200.5_FIXED(1).iLogicVb",
+    "Change%20K-factor%20to%200.5_V2.iLogicVb"
+  ],
+  "exclusion_reason": "Original setter attribution to another author and derivative redistribution rights not cleared; no release"
+}

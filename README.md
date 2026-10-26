@@ -56,3 +56,9 @@ Tài liệu này chỉ tham khảo tên và URL dự án bên thứ ba; **không
 
 - [Voice Casting Engine 2.0 & Cinematic Audio Mixer — research proposal](docs/douviet/VOICE_CASTING_AUDIO_V2.md): voice profiling, character casting, soundtrack preservation and QA gates. **Documentation only; no integrated engine or dubbing test is claimed.**
 - [Source provenance and duplicate manifest](docs/douviet/VOICE_CASTING_AUDIO_V2_MANIFEST.json): two identical extracted Library texts indexed once.
+
+## Inventor iLogic — Reference Diagnostic (26/10/2026)
+
+- [K-Factor Reference Diagnostic](inventor/ilogic/kfactor/experimental/README.md): experimental **read-only** assembly reference audit; [source](inventor/ilogic/kfactor/experimental/KFactor_REFERENCE_DIAGNOSTIC.iLogicVb) and [SHA-256 manifest](inventor/ilogic/kfactor/experimental/SOURCE_MANIFEST.json).
+- Static source/security review only; **Inventor compilation and runtime have not been verified**. Generated local reports may include confidential file paths.
+- Original and modified K-factor setter rules remain **pending copyright/provenance clearance** and are not published.
