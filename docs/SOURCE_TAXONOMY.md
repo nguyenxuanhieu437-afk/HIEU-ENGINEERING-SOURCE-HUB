@@ -18,3 +18,5 @@ Cập nhật: 2026-10-22. Mỗi nhóm có trạng thái: `legacy`, `experimental
 | Inventor iLogic K-Factor reference diagnostic | `inventor/ilogic/kfactor/experimental/` | experimental, source + SHA-256 manifest; static audit only; setter variants pending rights clearance |
 
 Các thư mục “dự kiến” không đồng nghĩa mã nguồn đã được công khai. Mọi nhập nguồn phải có checksum, provenance, rà soát secrets và quyền phát hành.
+
+| Inventor iLogic Drawing / Sheet Part Number | `inventor/ilogic/drawing/experimental/` | experimental; original source, README, checksum manifest; runtime untested |

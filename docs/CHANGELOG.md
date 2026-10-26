@@ -1,5 +1,11 @@
 # Source Hub — Changelog
 
+## 2026-10-26 — Drawing sheet Part Number sync (experimental)
+
+- Archived original, user-commissioned `HIEU_SYNC_SHEET_PARTNUMBER.iLogicVb` with setup README and SHA-256 manifest. The uploaded ZIP contained a byte-identical copy and was not imported separately.
+- Static credentials/private-path/network/shell pattern checks passed; no third-party code identified. The rule modifies sheet names and has not been tested inside Inventor.
+- Updated repository README and taxonomy. No release tag; no unrelated pending sources published.
+
 ## 2026-10-26 — Inventor iLogic reference diagnostic (experimental)
 
 - Added a user-commissioned, independently generated, read-only K-factor reference diagnostic rule with README and SHA-256 manifest; no Inventor runtime test or release tag.

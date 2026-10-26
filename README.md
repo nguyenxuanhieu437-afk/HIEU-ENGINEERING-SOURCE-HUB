@@ -62,3 +62,8 @@ Tài liệu này chỉ tham khảo tên và URL dự án bên thứ ba; **không
 - [K-Factor Reference Diagnostic](inventor/ilogic/kfactor/experimental/README.md): experimental **read-only** assembly reference audit; [source](inventor/ilogic/kfactor/experimental/KFactor_REFERENCE_DIAGNOSTIC.iLogicVb) and [SHA-256 manifest](inventor/ilogic/kfactor/experimental/SOURCE_MANIFEST.json).
 - Static source/security review only; **Inventor compilation and runtime have not been verified**. Generated local reports may include confidential file paths.
 - Original and modified K-factor setter rules remain **pending copyright/provenance clearance** and are not published.
+
+## Inventor iLogic — Drawing sheet / Part Number sync (26/10/2026)
+
+- [HIEU Sync Sheet Name to Part Number](inventor/ilogic/drawing/experimental/README.md): experimental iLogic rule for renaming drawing sheets from the first valid model view's Part Number. [Source](inventor/ilogic/drawing/experimental/HIEU_SYNC_SHEET_PARTNUMBER.iLogicVb) · [SHA-256 manifest](inventor/ilogic/drawing/experimental/SOURCE_MANIFEST.json).
+- User-commissioned original source; Library ZIP duplicate omitted. Static audit only; **no Inventor runtime validation, release tag or claim of production readiness**.

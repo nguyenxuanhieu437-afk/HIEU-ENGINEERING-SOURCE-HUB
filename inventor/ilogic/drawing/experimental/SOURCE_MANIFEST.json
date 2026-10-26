@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "project": "HIEU Sync Sheet Name to Part Number",
+  "status": "experimental",
+  "path": "inventor/ilogic/drawing/experimental/HIEU_SYNC_SHEET_PARTNUMBER.iLogicVb",
+  "original_filename": "HIEU_SYNC_SHEET_PARTNUMBER.iLogicVb",
+  "date_created": "2026-10-26",
+  "source_sha256": "94801212188fe245d9c122b2783d9946a1387ea5dfddbb07bcdc53208b875b3d",
+  "source_size_bytes": 4766,
+  "source_encoding": "ASCII-compatible UTF-8, LF",
+  "origin": "User-commissioned original iLogic source created for the project owner on 2026-10-26; no external source copied",
+  "license": "No standalone open-source license specified; owner retains rights",
+  "library_archive": {
+    "filename": "HIEU_SYNC_SHEET_PARTNUMBER.zip",
+    "sha256": "27538bb51955fbca3f9ade5c43ac41047529147b2a1fc230d4c70c1accfd32fb",
+    "duplicate_source_sha256": "94801212188fe245d9c122b2783d9946a1387ea5dfddbb07bcdc53208b875b3d",
+    "published": false
+  },
+  "audit": {
+    "secrets": "Basic static patterns negative; no hard-coded private paths or network/shell execution",
+    "third_party_code": "None identified; documentation links only",
+    "build": "Not tested",
+    "inventor_runtime": "Not tested",
+    "known_risks": [
+      "Modifies drawing sheet names",
+      "First resolvable drawing view determines Part Number",
+      "Duplicate/colliding names may fail",
+      "Before Save trigger untested"
+    ]
+  },
+  "tags": [
+    "autodesk-inventor",
+    "ilogic",
+    "drawing",
+    "part-number",
+    "experimental"
+  ]
+}
