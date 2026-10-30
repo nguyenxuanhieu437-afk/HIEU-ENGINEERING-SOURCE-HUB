@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "project": "TST_DIM_PROJECTED_SAFE",
+  "status": "experimental",
+  "path": "inventor/ilogic/drawing/projected-dim/experimental/TST_DIM_PROJECTED_SAFE.iLogicVb",
+  "source_date": "2026-10-30",
+  "source_sha256": "1cfe2f7d75a99bee4e131964cb119c616c8c0ab09b2c9178daad90d1edf33132",
+  "source_size_bytes": 7598,
+  "encoding": "UTF-8 LF",
+  "origin": "Model-generated original rule commissioned by repository owner; Library source",
+  "duplicates_omitted": [
+    "TST_DIM_PROJECTED_SAFE(1).iLogicVb"
+  ],
+  "license": "No standalone open-source license specified; rights retained by owner",
+  "third_party_code_included": false,
+  "audit": {
+    "credentials": "no indicators found in static scan",
+    "network_calls": false,
+    "shell_execution": false,
+    "private_absolute_paths": false,
+    "file_write": "local temporary audit report",
+    "source_modifies": "DrawingView.GeneralDimensionType only; existing dimensions not rewritten",
+    "inventor_runtime_tested": false
+  },
+  "release_allowed": true,
+  "release_classification": "experimental source archive only",
+  "tag_created": false,
+  "related_on_hold": [
+    "TST_DIM_AUTO_FIX_GLOBAL.iLogicVb",
+    "TST_DIM_AUTO_FIX_GLOBAL_PACKAGE.zip"
+  ]
+}

@@ -1,0 +1,165 @@
+' TST_DIM_PROJECTED_SAFE.iLogicVb
+' Inventor 2025 / 2027 - External iLogic Rule
+' Purpose:
+'   1) Change supported Drawing Views to Projected dimensions.
+'   2) Audit existing general dimensions that remain True or have overridden values.
+'   3) Preserve every existing dimension, style, position and leader.
+' No popup / No auto-save / No admin privileges required.
+'
+Sub Main()
+    ' ===== USER OPTIONS =====
+    Const ALL_SHEETS As Boolean = False  ' False = active sheet only; True = all sheets
+    Const SKIP_STANDARD_ISO As Boolean = True  ' Skip the four standard ISO orientations
+    ' ========================
+
+    Dim doc As Inventor.DrawingDocument = _
+        TryCast(ThisApplication.ActiveDocument, Inventor.DrawingDocument)
+    If doc Is Nothing Then
+        Logger.Warn("TST_DIM_PROJECTED_SAFE: Active document is not an Inventor Drawing.")
+        Exit Sub
+    End If
+
+    Dim targets As New System.Collections.Generic.List(Of Inventor.Sheet)
+    If ALL_SHEETS Then
+        For Each sh As Inventor.Sheet In doc.Sheets
+            targets.Add(sh)
+        Next
+    Else
+        targets.Add(doc.ActiveSheet)
+    End If
+
+    Dim changed As Integer = 0
+    Dim alreadyProjected As Integer = 0
+    Dim skippedIso As Integer = 0
+    Dim failedViews As Integer = 0
+    Dim oldTrueDims As Integer = 0
+    Dim overriddenDims As Integer = 0
+    Dim hiddenValueDims As Integer = 0
+    Dim auditErrors As Integer = 0
+
+    Dim report As New System.Text.StringBuilder()
+    report.AppendLine("TST_DIM_PROJECTED_SAFE - Dimension audit")
+    report.AppendLine("Drawing: " & doc.DisplayName)
+    report.AppendLine("Date: " & System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"))
+    report.AppendLine("Scope: " & If(ALL_SHEETS, "ALL SHEETS", "ACTIVE SHEET"))
+    report.AppendLine("NOTE: Changing a view's GeneralDimensionType does NOT convert existing True dimensions.")
+    report.AppendLine("NOTE: Projected measurements are not necessarily true 3D lengths.")
+    report.AppendLine("")
+    report.AppendLine("SHEET | DIM INDEX | ISSUE | TEXT X (mm on sheet) | TEXT Y (mm on sheet)")
+
+    For Each sh As Inventor.Sheet In targets
+        ' Update Drawing Views for future General Dimensions.
+        For Each vw As Inventor.DrawingView In sh.DrawingViews
+            Try
+                If SKIP_STANDARD_ISO AndAlso IsStandardIso(vw) Then
+                    skippedIso += 1
+                    Continue For
+                End If
+
+                If vw.GeneralDimensionType = _
+                    Inventor.GeneralDimensionTypeEnum.kProjectedGeneralDimension Then
+                    alreadyProjected += 1
+                Else
+                    vw.GeneralDimensionType = _
+                        Inventor.GeneralDimensionTypeEnum.kProjectedGeneralDimension
+                    If vw.GeneralDimensionType = _
+                        Inventor.GeneralDimensionTypeEnum.kProjectedGeneralDimension Then
+                        changed += 1
+                    Else
+                        failedViews += 1
+                        report.AppendLine("VIEW NOT UPDATED: " & sh.Name & " / " & vw.Name)
+                    End If
+                End If
+            Catch ex As System.Exception
+                failedViews += 1
+                report.AppendLine("VIEW ERROR: " & sh.Name & " / " & vw.Name & " - " & ex.Message)
+            End Try
+        Next
+
+        ' Audit existing dimensions WITHOUT modifying them.
+        Dim index As Integer = 0
+        For Each dimObj As Inventor.GeneralDimension In sh.DrawingDimensions.GeneralDimensions
+            index += 1
+            Try
+                Dim issue As String = ""
+                If dimObj.GeneralDimensionType = _
+                    Inventor.GeneralDimensionTypeEnum.kTrueGeneralDimension Then
+                    oldTrueDims += 1
+                    issue = "TRUE"
+                End If
+                If dimObj.ModelValueOverridden Then
+                    overriddenDims += 1
+                    If issue <> "" Then issue &= ", "
+                    issue &= "VALUE OVERRIDDEN"
+                End If
+                If dimObj.HideValue Then
+                    hiddenValueDims += 1
+                    If issue <> "" Then issue &= ", "
+                    issue &= "VALUE HIDDEN"
+                End If
+
+                If issue <> "" Then
+                    Dim p As Inventor.Point2d = dimObj.Text.Origin
+                    ' Inventor's internal length unit is cm. Convert sheet coords to mm.
+                    Dim row As String = System.String.Format( _
+                        System.Globalization.CultureInfo.InvariantCulture, _
+                        "{0} | {1} | {2} | {3:0.0} | {4:0.0}", _
+                        sh.Name, index, issue, p.X * 10.0, p.Y * 10.0)
+                    report.AppendLine(row)
+                End If
+            Catch ex As System.Exception
+                auditErrors += 1
+                report.AppendLine("DIM AUDIT ERROR: " & sh.Name & " / #" & index & " - " & ex.Message)
+            End Try
+        Next
+    Next
+
+    report.AppendLine("")
+    report.AppendLine("RESULT")
+    report.AppendLine("Views changed to Projected: " & changed)
+    report.AppendLine("Views already Projected: " & alreadyProjected)
+    report.AppendLine("Standard ISO views skipped: " & skippedIso)
+    report.AppendLine("Views failed: " & failedViews)
+    report.AppendLine("Existing True dimensions: " & oldTrueDims)
+    report.AppendLine("Overridden dimensions: " & overriddenDims)
+    report.AppendLine("Dimensions with hidden value: " & hiddenValueDims)
+    report.AppendLine("Dimension audit errors: " & auditErrors)
+    report.AppendLine("")
+    report.AppendLine("REVIEW: Existing TRUE dimensions should be checked and recreated manually")
+    report.AppendLine("after confirming geometry and the intended Projected/True measurement.")
+    report.AppendLine("In General Dimension command: right-click > Annotation Plane > Use Sheet Plane")
+    report.AppendLine("when dimensions are intended to lie on the drawing sheet plane.")
+
+    Dim path As String = System.IO.Path.Combine( _
+        System.IO.Path.GetTempPath(), "TST_DIM_PROJECTED_SAFE_AUDIT.txt")
+    Try
+        System.IO.File.WriteAllText(path, report.ToString(), New System.Text.UTF8Encoding(True))
+        Logger.Info("TST_DIM_PROJECTED_SAFE: Report saved to " & path)
+    Catch ex As System.Exception
+        Logger.Warn("TST_DIM_PROJECTED_SAFE: Could not save report: " & ex.Message)
+        Logger.Warn(report.ToString())
+    End Try
+
+    If oldTrueDims > 0 OrElse overriddenDims > 0 OrElse failedViews > 0 OrElse auditErrors > 0 Then
+        Logger.Warn("TST_DIM_PROJECTED_SAFE: Review required. Existing TRUE dims=" & _
+            oldTrueDims & ", overrides=" & overriddenDims & ", view errors=" & failedViews & _
+            ", audit errors=" & auditErrors)
+    Else
+        Logger.Info("TST_DIM_PROJECTED_SAFE: View conversion finished. No True/overridden general dimensions found.")
+    End If
+End Sub
+
+Private Function IsStandardIso(vw As Inventor.DrawingView) As Boolean
+    Try
+        Select Case vw.Camera.ViewOrientationType
+            Case Inventor.ViewOrientationTypeEnum.kIsoTopRightViewOrientation, _
+                 Inventor.ViewOrientationTypeEnum.kIsoTopLeftViewOrientation, _
+                 Inventor.ViewOrientationTypeEnum.kIsoBottomRightViewOrientation, _
+                 Inventor.ViewOrientationTypeEnum.kIsoBottomLeftViewOrientation
+                Return True
+        End Select
+    Catch
+        ' Do not skip a view merely because Inventor cannot resolve its camera.
+    End Try
+    Return False
+End Function

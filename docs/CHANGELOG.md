@@ -1,5 +1,12 @@
 # Source Hub — Changelog
 
+## 2026-10-30 — Projected dimension view audit (experimental)
+
+- Archived the original, model-generated, user-commissioned `TST_DIM_PROJECTED_SAFE.iLogicVb` with README and SHA-256 manifest. Omitted byte-identical `(1)` copy.
+- Static scan found no embedded credentials, personal absolute paths, network or shell execution. The rule changes drawing-view dimension defaults and writes a local audit; Inventor compilation and manufacturing acceptance remain unverified.
+- Kept `TST_DIM_AUTO_FIX_GLOBAL.iLogicVb` and its ZIP out of the public repository: the global rule may recreate/delete existing dimensions and needs explicit safety/runtime review.
+- No release tag; no DouViet, third-party code or unrelated pending sources published.
+
 ## 2026-10-26 — Drawing sheet Part Number sync (experimental)
 
 - Archived original, user-commissioned `HIEU_SYNC_SHEET_PARTNUMBER.iLogicVb` with setup README and SHA-256 manifest. The uploaded ZIP contained a byte-identical copy and was not imported separately.

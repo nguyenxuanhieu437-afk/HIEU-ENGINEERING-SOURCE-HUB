@@ -67,3 +67,8 @@ Tài liệu này chỉ tham khảo tên và URL dự án bên thứ ba; **không
 
 - [HIEU Sync Sheet Name to Part Number](inventor/ilogic/drawing/experimental/README.md): experimental iLogic rule for renaming drawing sheets from the first valid model view's Part Number. [Source](inventor/ilogic/drawing/experimental/HIEU_SYNC_SHEET_PARTNUMBER.iLogicVb) · [SHA-256 manifest](inventor/ilogic/drawing/experimental/SOURCE_MANIFEST.json).
 - User-commissioned original source; Library ZIP duplicate omitted. Static audit only; **no Inventor runtime validation, release tag or claim of production readiness**.
+
+## Inventor iLogic — Projected dimension view audit (30/10/2026)
+
+- [TST_DIM_PROJECTED_SAFE (experimental)](inventor/ilogic/drawing/projected-dim/experimental/README.md): user-commissioned original rule setting future view dimensions to Projected and auditing existing True dimensions. [Source](inventor/ilogic/drawing/projected-dim/experimental/TST_DIM_PROJECTED_SAFE.iLogicVb) · [SHA-256 manifest](inventor/ilogic/drawing/projected-dim/experimental/SOURCE_MANIFEST.json).
+- Two identical Library copies deduplicated. **No Inventor runtime validation; do not assume manufacturing readiness.** The global auto-fixer that recreates/deletes existing dimensions remains HOLD and is not published.
